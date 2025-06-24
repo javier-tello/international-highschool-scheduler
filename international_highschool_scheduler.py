@@ -1,8 +1,10 @@
+import os
 import gspread
 from google.oauth2.service_account import Credentials
 from ortools.sat.python import cp_model
 import time
 from datetime import datetime
+from dotenv import load_dotenv
 
 # ============================================================================
 # GOOGLE SHEETS INTEGRATION CLASS
@@ -302,7 +304,7 @@ class SchoolSchedulerGoogleSheets:
                 start_row = i + 1
                 end_row = start_row + len(batch) - 1
                 range_name = f'A{start_row}:G{end_row}'
-                schedule_sheet.update(batch, range_name)  # Values first, then range
+                schedule_sheet.update(batch, range_name)
             
             print("✅ Class schedules written to Google Sheets")
             
@@ -332,15 +334,6 @@ class SchoolSchedulerGoogleSheets:
             first_teacher = list(schedules_data.keys())[0]
             days = list(schedules_data[first_teacher].keys())
             
-            # # Get all periods that exist across all days
-            # all_periods = set()
-            # for day in days:
-            #     all_periods.update(schedules_data[first_teacher][day].keys())
-            # periods = sorted(list(all_periods))
-            
-            # print(f"📅 Days: {days}")
-            # print(f"⏰ All periods found: {periods}")
-            
             # Prepare grid data
             all_data = []
             
@@ -355,7 +348,7 @@ class SchoolSchedulerGoogleSheets:
                 header_row = []
                 for j, teacher in enumerate(row_teachers):
                     header_row.extend([teacher] + [''] * (len(days) - 1))
-                    if j < len(row_teachers) - 1:  # Add separator except for last teacher
+                    if j < len(row_teachers) - 1:
                         header_row.append('')
                 all_data.append(header_row)
                 
@@ -455,7 +448,6 @@ class SchoolSchedulerGoogleSheets:
             except gspread.WorksheetNotFound:
                 grid_sheet = self.spreadsheet.add_worksheet("Class_Schedules_Grid", 2000, 50)
             
-            # Debug: Check if we have data
             if not schedules_data:
                 print("❌ No schedule data provided")
                 return
@@ -710,13 +702,12 @@ class GoogleSheetsScheduler:
         
         # Ensure each literacy teacher has classes from all served teams
         for teacher in literacy_teachers:
-            # For example, assign Literacy_T1 to teams 1 and 2, and Literacy_T2 to teams 3 and 4
             if teacher == 'Literacy_T1':
                 assigned_teams = [1, 2]
             elif teacher == 'Literacy_T2':
                 assigned_teams = [3, 4]
             else:
-                continue  # Skip if not defined
+                continue
             
             all_classes = []
             for team in assigned_teams:
@@ -724,7 +715,7 @@ class GoogleSheetsScheduler:
                     all_classes.extend(TEAMS[team])
             
             # Update with the correct classes
-            literacy_teachers[teacher] = list(set(all_classes))  # Remove duplicates
+            literacy_teachers[teacher] = list(set(all_classes))
         
         print(f"Literacy teachers found: {literacy_teachers}")
         
@@ -875,7 +866,7 @@ class GoogleSheetsScheduler:
         print("Adding one class per teacher constraint...")
 
         for teacher in ALL_TEACHERS:
-            if teacher not in PE_TEACHERS:  # Core and literacy teachers can only teach one class at a time
+            if teacher not in PE_TEACHERS:
                 for day in DAYS:
                     for period in TEACHING_PERIODS[day]:
                         teacher_assignments = []
@@ -887,16 +878,16 @@ class GoogleSheetsScheduler:
         print("Adding no repeat classes same day constraint...")
 
         for teacher in ALL_TEACHERS:
-            if teacher not in PE_TEACHERS:  # PE can teach same team multiple times per day
+            if teacher not in PE_TEACHERS:
                 for day in DAYS:
                     for class_name in CLASSES:
                         daily_teaching = []
                         for period in TEACHING_PERIODS[day]:
                             daily_teaching.append(teacher_class_assignment[teacher][class_name][day][period])
-                        model.Add(sum(daily_teaching) <= 1)  # At most once per day per class
+                        model.Add(sum(daily_teaching) <= 1)
 
         # ============================================================================
-        # CORE SUBJECT CONSTRAINTS - FIXED
+        # CORE SUBJECT CONSTRAINTS
         # ============================================================================
 
         print("Adding core subject constraints...")
@@ -918,10 +909,10 @@ class GoogleSheetsScheduler:
                                     weekly_teaching.append(
                                         teacher_class_assignment[teacher][class_name][day][period]
                                     )
-                            model.Add(sum(weekly_teaching) == 4)  # Exactly 4 times per week per class
+                            model.Add(sum(weekly_teaching) == 4)
 
         # ============================================================================
-        # LITERACY CONSTRAINTS - FIXED
+        # LITERACY CONSTRAINTS
         # ============================================================================
 
         print("Adding literacy constraints...")
@@ -943,14 +934,14 @@ class GoogleSheetsScheduler:
                         weekly_literacy.append(
                             teacher_class_assignment[literacy_teacher][class_name][day][period]
                         )
-                model.Add(sum(weekly_literacy) == 2)  # Exactly 2 times per week per class
+                model.Add(sum(weekly_literacy) == 2)
                 
                 # No repeat same day for literacy
                 for day in DAYS:
                     daily_literacy = []
                     for period in TEACHING_PERIODS[day]:
                         daily_literacy.append(teacher_class_assignment[literacy_teacher][class_name][day][period])
-                    model.Add(sum(daily_literacy) <= 1)  # At most once per day per class
+                    model.Add(sum(daily_literacy) <= 1)
 
         # Literacy teachers should NOT participate in team meetings
         print("Excluding literacy teachers from team meetings...")
@@ -963,7 +954,7 @@ class GoogleSheetsScheduler:
                         ).OnlyEnforceIf(team_meeting_schedule[team_num][day][period])
 
         # ============================================================================
-        # PE CONSTRAINTS - UPDATED FOR TEAM-WIDE TEACHING
+        # PE CONSTRAINTS
         # ============================================================================
 
         print("Adding PE constraints...")
@@ -1001,7 +992,7 @@ class GoogleSheetsScheduler:
                         # At least one PE teacher must teach each class when team has PE
                         model.AddBoolOr(pe_teaching_class).OnlyEnforceIf(team_pe_schedule[team_num][day][period])
                     
-                    # Optional: Ensure efficient team coverage (all 4 classes covered when team has PE)
+                    # Ensure efficient team coverage (all 4 classes covered when team has PE)
                     total_pe_coverage = []
                     for class_name in team_classes:
                         for pe_teacher in PE_TEACHERS:
@@ -1028,7 +1019,7 @@ class GoogleSheetsScheduler:
                 teams_with_pe = []
                 for team_num in range(1, 5):
                     teams_with_pe.append(team_pe_schedule[team_num][day][period])
-                model.Add(sum(teams_with_pe) <= 1)  # At most one team has PE per period
+                model.Add(sum(teams_with_pe) <= 1)
 
         # ============================================================================
         # PE TEACHER MAXIMUM CLASS LOAD
@@ -1062,7 +1053,7 @@ class GoogleSheetsScheduler:
         # Each core teacher has exactly 2 team meetings per week
         for team_key, team_teachers in TEACHERS.items():
             for subject, teacher in team_teachers.items():
-                if subject != 'Literacy':  # Only core teachers, not literacy
+                if subject != 'Literacy':
                     weekly_team_meetings = []
                     for day in DAYS:
                         for period in TEACHING_PERIODS[day]:
@@ -1072,7 +1063,7 @@ class GoogleSheetsScheduler:
                             weekly_team_meetings.append(is_team_meeting)
                     model.Add(sum(weekly_team_meetings) == 2)
 
-        # CRITICAL FIX: Teachers can ONLY have team meetings when their team has a meeting
+        # Teachers can ONLY have team meetings when their team has a meeting
         print("Adding bidirectional team meeting constraint...")
 
         for team_num in range(1, 5):
@@ -1135,7 +1126,7 @@ class GoogleSheetsScheduler:
                         ).OnlyEnforceIf(team_meeting_schedule[team_num][day][period])
 
         # ============================================================================
-        # DISCIPLINE MEETING CONSTRAINTS - FIXED (NO TEACHING CONFLICTS)
+        # DISCIPLINE MEETING CONSTRAINTS
         # ============================================================================
 
         print("Adding discipline meeting constraints (FIXED)...")
@@ -1261,7 +1252,6 @@ class GoogleSheetsScheduler:
                     model.Add(teacher_activity[teacher][day][period] != ACTIVITIES.index('Discipline_Meeting')).OnlyEnforceIf(is_discipline.Not())
                     weekly_discipline.append(is_discipline)
             
-            # Exactly 1 discipline meeting per week
             model.Add(sum(weekly_discipline) == 1)
 
         # ============================================================================
@@ -1374,7 +1364,7 @@ class GoogleSheetsScheduler:
                 model.Add(literacy_advisory <= team_advisory)
 
         # ============================================================================
-        # ADVISORY SYNCHRONIZATION CONSTRAINT - FIXED
+        # ADVISORY SYNCHRONIZATION CONSTRAINT
         # ============================================================================
 
         print("Adding advisory synchronization constraint (FIXED)...")
@@ -1402,10 +1392,7 @@ class GoogleSheetsScheduler:
                         team_advisory_schedule[team_num][day][period] <= period_usage_vars[period]
                     )
                     
-                    # NEW: If period is "used", team can have advisory at this period
-                    # (This creates the bidirectional relationship)
-                    
-            # STRONGER CONSTRAINT: Each team must have exactly 2 advisory periods per week
+            # Each team must have exactly 2 advisory periods per week
             # AND they must be at the designated period numbers
             for period_num in all_period_numbers:
                 # Count how many times this team has advisory at this specific period number
@@ -1442,13 +1429,13 @@ class GoogleSheetsScheduler:
                     # When team has advisory, no teacher should be teaching any class in that team
                     for class_name in team_classes:
                         for teacher in ALL_TEACHERS:
-                            if teacher not in PE_TEACHERS:  # PE teachers don't participate in advisory
+                            if teacher not in PE_TEACHERS:
                                 model.Add(
                                     teacher_class_assignment[teacher][class_name][day][period] == 0
                                 ).OnlyEnforceIf(team_advisory_schedule[team_num][day][period])
 
         # ============================================================================
-        # ELECTIVE CONSTRAINTS - SIMPLIFIED FOR DEBUGGING
+        # ELECTIVE CONSTRAINTS
         # ============================================================================
 
         print("Adding elective constraints...")
@@ -1497,7 +1484,7 @@ class GoogleSheetsScheduler:
                         model.Add(sum(teacher_assignments) <= 1)
 
         # ============================================================================
-        # PE TEACHER WEEKLY LOAD CONSTRAINT - FLEXIBLE RANGE
+        # PE TEACHER WEEKLY LOAD CONSTRAINT
         # ============================================================================
 
         print("Adding PE teacher weekly load constraint...")
@@ -1565,7 +1552,7 @@ class GoogleSheetsScheduler:
                 model.Add(sum(intensive_vars) <= 3)
 
         # ============================================================================
-        # NO REPEAT CLASSES SAME DAY CONSTRAINT - FIXED
+        # NO REPEAT CLASSES SAME DAY CONSTRAINT
         # ============================================================================
 
         print("Adding no repeat classes same day constraint (fixed)...")
@@ -1582,18 +1569,6 @@ class GoogleSheetsScheduler:
                         # At most once per day per class
                         if daily_teaching:  # Only add constraint if there are teaching periods
                             model.Add(sum(daily_teaching) <= 1)
-                        
-                        # # Additional pairwise constraints for extra enforcement
-                        # teaching_periods_list = list(TEACHING_PERIODS[day])
-                        # for i in range(len(teaching_periods_list)):
-                        #     for j in range(i + 1, len(teaching_periods_list)):
-                        #         period1 = teaching_periods_list[i]
-                        #         period2 = teaching_periods_list[j]
-                        #         # Cannot teach same class in two different periods on same day
-                        #         model.Add(
-                        #             teacher_class_assignment[teacher][class_name][day][period1] + 
-                        #             teacher_class_assignment[teacher][class_name][day][period2] <= 1
-                        # )
         
         # ============================================================================
         # SOLVER
@@ -1615,128 +1590,6 @@ class GoogleSheetsScheduler:
             quality = "Optimal" if status == cp_model.OPTIMAL else "Feasible"
             print(f"✅ {quality} solution found in {solve_time:.2f} seconds!")
 
-            # # Verify core subject teaching frequencies
-            # print("\n🔍 CORE SUBJECT FREQUENCY VERIFICATION:")
-            # for team_num in range(1, 5):
-            #     team_key = f'team_{team_num}'
-            #     if team_key in TEACHERS:
-            #         team_classes = TEAMS[team_num]
-            #         print(f"\n=== TEAM {team_num} CLASSES: {team_classes} ===")
-                    
-            #         for subject in CORE_SUBJECTS:
-            #             if subject in TEACHERS[team_key]:
-            #                 teacher = TEACHERS[team_key][subject]
-            #                 print(f"\n{teacher} ({subject}):")
-                            
-            #                 for class_name in team_classes:
-            #                     weekly_count = 0
-            #                     class_periods = []
-            #                     for day in DAYS:
-            #                         for period in TEACHING_PERIODS[day]:
-            #                             if solver.Value(teacher_class_assignment[teacher][class_name][day][period]) == 1:
-            #                                 weekly_count += 1
-            #                                 class_periods.append(f"{day}P{period}")
-                                
-            #                     print(f"  {class_name}: {weekly_count} periods - {class_periods}")
-            #                     if weekly_count != 4:
-            #                         print(f"    ❌ VIOLATION: Should be 4, got {weekly_count}")
-
-            # # Verify literacy teaching frequencies  
-            # print("\n🔍 LITERACY FREQUENCY VERIFICATION:")
-            # literacy_assignments = {
-            #     'Literacy_T1': ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'],
-            #     'Literacy_T2': ['I', 'J', 'K', 'L', 'M', 'N', 'O', 'P']
-            # }
-
-            # for literacy_teacher, assigned_classes in literacy_assignments.items():
-            #     print(f"\n{literacy_teacher}:")
-            #     for class_name in assigned_classes:
-            #         weekly_count = 0
-            #         class_periods = []
-            #         for day in DAYS:
-            #             for period in TEACHING_PERIODS[day]:
-            #                 if solver.Value(teacher_class_assignment[literacy_teacher][class_name][day][period]) == 1:
-            #                     weekly_count += 1
-            #                     class_periods.append(f"{day}P{period}")
-                    
-            #         print(f"  {class_name}: {weekly_count} periods - {class_periods}")
-            #         if weekly_count != 2:
-            #             print(f"    ❌ VIOLATION: Should be 2, got {weekly_count}")
-
-            # # Verify team meeting days
-            # print("\n🔍 TEAM MEETING DAYS VERIFICATION:")
-            # for team_num in range(1, 5):
-            #     meeting_days = set()
-            #     for day in DAYS:
-            #         for period in TEACHING_PERIODS[day]:
-            #             if solver.Value(team_meeting_schedule[team_num][day][period]) == 1:
-            #                 meeting_days.add(day)
-                
-            #     print(f"Team {team_num} meeting days: {list(meeting_days)}")
-            #     if len(meeting_days) != 2:
-            #         print(f"  ❌ VIOLATION: Should be on 2 different days, got {len(meeting_days)} days")
-
-            # # Debug 4-in-a-row constraint
-            # print("\n🔍 4-IN-A-ROW VIOLATION CHECK:")
-            # for teacher in ALL_TEACHERS:
-            #     print(f"\n{teacher}:")
-            #     for day in DAYS:
-            #         day_activities = []
-            #         for period in ALL_PERIODS[day]:
-            #             activity_idx = solver.Value(teacher_activity[teacher][day][period])
-            #             activity = ACTIVITIES[activity_idx]
-                        
-            #             # Check if teaching
-            #             is_teaching = False
-            #             for class_name in CLASSES:
-            #                 if period in TEACHING_PERIODS[day]:
-            #                     if solver.Value(teacher_class_assignment[teacher][class_name][day][period]) == 1:
-            #                         is_teaching = True
-            #                         break
-                        
-            #             if is_teaching:
-            #                 day_activities.append(f"P{period}:TEACH")
-            #             elif activity in ['Team_Meeting', 'Discipline_Meeting', 'Advisory']:
-            #                 day_activities.append(f"P{period}:{activity}")
-            #             elif activity == 'Elective':
-            #                 day_activities.append(f"P{period}:ELECTIVE")
-            #             else:
-            #                 day_activities.append(f"P{period}:{activity}")
-                    
-            #         print(f"  {day}: {day_activities}")
-
-            print("\n🏆 FINAL COMPREHENSIVE VERIFICATION:")
-
-            # 1. PE weekly load check
-            for pe_teacher in PE_TEACHERS:
-                weekly_load = 0
-                for day in DAYS:
-                    for period in TEACHING_PERIODS[day]:
-                        for class_name in CLASSES:
-                            if solver.Value(teacher_class_assignment[pe_teacher][class_name][day][period]) == 1:
-                                weekly_load += 1
-                print(f"{pe_teacher} weekly load: {weekly_load} periods")
-                if weekly_load < 15 or weekly_load > 25:
-                    print(f"  ❌ VIOLATION: Should be 15-25, got {weekly_load}")
-
-            # 2. Elective synchronization check
-            print("\nElective periods:")
-            for day in DAYS:
-                for period in TEACHING_PERIODS[day]:
-                    if solver.Value(elective_schedule[day][period]) == 1:
-                        print(f"  School-wide elective: {day} P{period}")
-
-            # 3. Advisory team synchronization check
-            print("\nAdvisory synchronization:")
-            for team_num in range(1, 5):
-                advisory_periods = []
-                for day in DAYS:
-                    for period in TEACHING_PERIODS[day]:
-                        if solver.Value(team_advisory_schedule[team_num][day][period]) == 1:
-                            advisory_periods.append(f"{day}P{period}")
-                print(f"Team {team_num} advisory: {advisory_periods}")
-            
-
             return {
                 'status': status,
                 'solver': solver,
@@ -1752,8 +1605,7 @@ class GoogleSheetsScheduler:
         else:
             print(f"❌ No solution found. Status: {status_name}")
             print(f"Solve time: {solve_time:.2f} seconds")
-            
-            # Add some basic constraint debugging
+
             print("\n🔍 Debugging info:")
             print(f"Total teachers: {len(ALL_TEACHERS)}")
             print(f"Total classes: {len(CLASSES)}")
@@ -1773,7 +1625,7 @@ class GoogleSheetsScheduler:
         elective_schedule = solution['elective_schedule']
         
         DAYS = data['DAYS']
-        ALL_PERIODS = data['ALL_PERIODS']  # This has the correct periods per day
+        ALL_PERIODS = data['ALL_PERIODS']
         TEACHING_PERIODS = data['TEACHING_PERIODS']
         CLASSES = data['CLASSES']
         ALL_TEACHERS = data['ALL_TEACHERS']
@@ -1788,8 +1640,7 @@ class GoogleSheetsScheduler:
             teacher_schedules[teacher] = {}
             for day in DAYS:
                 teacher_schedules[teacher][day] = {}
-                # Use the correct periods for each day
-                for period in ALL_PERIODS[day]:  # This will give us the right periods per day
+                for period in ALL_PERIODS[day]:
                     activity_idx = solver.Value(teacher_activity[teacher][day][period])
                     activity = ACTIVITIES[activity_idx]
                     
@@ -1835,9 +1686,9 @@ class GoogleSheetsScheduler:
                             if teacher in PE_TEACHERS:
                                 # PE teachers can teach any class during electives
                                 if teacher == 'PE_T1':
-                                    teaching_classes = ['A']  # PE_T1 teaches A Class elective
+                                    teaching_classes = ['A']
                                 else:  # PE_T2
-                                    teaching_classes = ['B']  # PE_T2 teaches B Class elective
+                                    teaching_classes = ['B']
                             else:
                                 # Core and literacy teachers teach classes from their team
                                 assigned_class = None
@@ -1873,7 +1724,7 @@ class GoogleSheetsScheduler:
                         display_activity = "Elective"
 
                     teacher_schedules[teacher][day][period] = {
-                        'activity': display_activity,  # Use display_activity instead of activity
+                        'activity': display_activity,
                         'classes': teaching_classes,
                         'subject': subject,
                         'notes': ''
@@ -1885,8 +1736,7 @@ class GoogleSheetsScheduler:
             class_schedules[class_name] = {}
             for day in DAYS:
                 class_schedules[class_name][day] = {}
-                # Use the correct periods for each day
-                for period in ALL_PERIODS[day]:  # This will give us the right periods per day
+                for period in ALL_PERIODS[day]:
                     if period == 3:  # Lunch
                         class_schedules[class_name][day][period] = {
                             'subject': 'Lunch',
@@ -1966,20 +1816,15 @@ class GoogleSheetsScheduler:
                 # Convert solution to sheets format and write
                 teacher_schedules, class_schedules = self.convert_solution_to_sheets_format(solution, model_data)
 
-                # # Write both formats
-                # self.sheets.write_teacher_schedules(teacher_schedules)
-                # self.sheets.write_class_schedules(class_schedules)
-
-                # Try grid formats with better error handling
                 try:
                     self.sheets.write_teacher_schedules_grid(teacher_schedules)
                 except Exception as e:
                     print(f"⚠️ Grid format failed, continuing with list format: {e}")
 
-                try:
-                    self.sheets.write_class_schedules_grid(class_schedules)
-                except Exception as e:
-                    print(f"⚠️ Class grid format failed, continuing with list format: {e}")
+                # try:
+                #     self.sheets.write_class_schedules_grid(class_schedules)
+                # except Exception as e:
+                #     print(f"⚠️ Class grid format failed, continuing with list format: {e}")
                 
                 # Update final status
                 solve_time = solution.get('solve_time', 0)
@@ -2007,9 +1852,9 @@ class GoogleSheetsScheduler:
 # ============================================================================
 
 def main():
-    # Configuration - UPDATE THESE PATHS
-    CREDENTIALS_FILE = "/Users/javiertello/Code/python/international-highschool-scheduler/school-scheduler-credentials.json"
-    SPREADSHEET_NAME = "New Test Grid Sheet"
+    load_dotenv()
+    CREDENTIALS_FILE = os.getenv('CREDENTIALS_FILE')
+    SPREADSHEET_NAME = os.getenv('SPREADSHEET_NAME')
     
     try:
         print("🚀 Starting School Scheduler with Google Sheets Integration")
